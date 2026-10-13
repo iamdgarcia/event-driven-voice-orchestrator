@@ -4,6 +4,13 @@
 non-stalling user turns, generation and delivery as independent lifecycles —
 ~600 lines, zero dependencies, runs with a fake model, no API keys.**
 
+![cascade vs event-driven turn timeline](docs/img/cascade_vs_event_driven.gif)
+
+*Same turn, both topologies, animated from real bench timings (RTT=1000ms, 4 tools,
+canonical cell of `bench/bench_turn_latency.py`): cascade serializes the tool
+round-trips — 4250ms — while the event-driven runtime dispatches them in parallel
+(1125ms) and acks the mid-pending user turn at 0ms. Regenerate: `python tools/make_timeline_gif.py`.*
+
 Part of [iamdgarcia](https://github.com/iamdgarcia)'s realtime voice-agent work.
 Full writeup: [Watching your voice agent think](https://iamdgarcia.medium.com/watching-your-voice-agent-think-three-instruments-you-can-open-in-a-browser-tab-f7ed16ec2a2a).
 
@@ -89,6 +96,20 @@ No installs, no API keys — Python ≥ 3.11, standard library only. Plug your r
 stack by implementing the five ports in `src/eventorchestrator/domain/ports.py`
 (the demo's fake model/tools show the shape; a Pipecat adapter maps frames to
 events and reports playback back).
+
+## Integrations
+
+Optional adapters live in [`integrations/`](integrations/README.md):
+
+- **Pipecat** (`pipecat_adapter/`) — `EventDrivenOrchestratorBridge`, a
+  `FrameProcessor` that maps `TranscriptionFrame` → `send_text`, playback
+  frames → delivery lifecycle, and streams assistant deltas as `LLMTextFrame`.
+  Transport only: Pipecat keeps scheduling, the orchestrator keeps state.
+  Works with the `ScriptedModel` (no LLM) — see the [wiring snippet](integrations/README.md#wiring-into-a-pipeline)
+  and run `python integrations/pipecat_adapter/test_bridge.py`.
+
+Dev extras (`pillow`, `pipecat-ai`, `ruff`) live in `requirements-dev.txt`; the
+core has no dependencies.
 
 ## Why not LangGraph?
 

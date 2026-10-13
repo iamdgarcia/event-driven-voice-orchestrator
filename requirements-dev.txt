@@ -1,0 +1,4 @@
+# Dev extras — core library stays zero-dep
+pillow>=10.0          # timeline GIF generator (tools/make_timeline_gif.py)
+pipecat-ai>=1.12      # pipecat adapter tests (integrations/pipecat_adapter/)
+ruff>=0.6             # lint/format (line-length 100)
