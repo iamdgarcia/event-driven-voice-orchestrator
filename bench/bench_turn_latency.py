@@ -15,6 +15,10 @@ Metric: end-user-perceived turn latency = last user token -> first visible
 bot chunk (monotonic clock, medians over N runs).
 
 Run:  python -m bench.bench_turn_latency
+
+The runtime-under-test is reached through the bench harness protocol
+(bench/harness.py: start / send_user_text / interrupt / wait_idle / pending_count);
+ConversationOrchestrator wrapped in OrchestratorHarness is the reference implementation.
 """
 
 from __future__ import annotations
@@ -38,6 +42,8 @@ from eventorchestrator.domain.ports import (  # noqa: E402
     TextDelta,
 )
 from eventorchestrator.domain.models import AssistantDecision, ToolCall  # noqa: E402
+
+from bench.harness import DELIVERY_INTERRUPTED, OrchestratorHarness  # noqa: E402
 
 FINAL_TEXT = "FINAL-ANSWER-MARKER"
 FILLER_TEXT = "One moment."
@@ -160,7 +166,7 @@ def AsyncIteratorType(t):  # noqa: N802 — tiny alias to keep the signature hon
 async def run_scenario(
     strategy: str, *, rtt_ms: float, n_tools: int, double_turn: bool
 ) -> dict[str, float | int | None]:
-    """One wall-clock conversation; latency marks in ms."""
+    """One wall-clock conversation, driven through the harness protocol; marks in ms."""
     output = BenchOutput()
     model = ScriptedBenchModel(strategy=strategy, n_tools=n_tools)
     orchestrator = ConversationOrchestrator(
@@ -171,20 +177,21 @@ async def run_scenario(
         repository=InMemoryConversationRepository(),
         dispatcher_state=NoopDispatcherState(),
     )
+    harness = OrchestratorHarness(orchestrator)
     loop = asyncio.get_running_loop()
-    await orchestrator.start()
+    await harness.start()
 
     t0 = loop.time()
-    await orchestrator.send_text("check my orders")
+    await harness.send_user_text("check my orders")
     t_send2: float | None = None
     if double_turn:
         await asyncio.sleep(0.05)
         t_send2 = loop.time()
         output.arm("turn2")
-        await orchestrator.send_text("and one more thing")
+        await harness.send_user_text("and one more thing")
 
     def turn_done() -> bool:
-        if orchestrator.state.pending_batches:
+        if harness.pending_count():
             return False
         return FINAL_TEXT in "".join(output.chunks)
 
@@ -193,7 +200,7 @@ async def run_scenario(
         if loop.time() > deadline:
             raise RuntimeError("turn did not complete")
         await asyncio.sleep(0.002)
-    await orchestrator.wait_idle()
+    await harness.wait_idle()
     total_ms = (loop.time() - t0) * 1000.0
     ttfa_ms = (output.first_text_at - t0) * 1000.0 if output.first_text_at else None
     ttfa2_ms = (
@@ -241,10 +248,14 @@ def check_invariants(results: list[dict]) -> list[tuple[str, bool, str]]:
         a, b, c = (cell["variants"][k] for k in ("A", "B", "C"))
         tag = f"rtt={rtt} tools={n}"
 
-        # I1: parallel beats cascade, growing linearly in (tools-1)*RTT
+        # I1: parallel beats cascade, growing linearly in (tools-1)*RTT.
+        # At tools=1 the topologies coincide (expected gap 0) — median-vs-median
+        # noise swamps the comparison, so I1 is added only when n >= 2; I2 covers n=1.
         expected_gap = (n - 1) * rtt
         actual_gap = a["total_ms_med"] - b["total_ms_med"]
         ok = actual_gap >= expected_gap * 0.6 and b["total_ms_med"] <= a["total_ms_med"]
+        if n < 2:
+            continue
         checks.append(
             (
                 f"1-parallel-beats-cascade [{tag}]",
@@ -272,6 +283,96 @@ def check_invariants(results: list[dict]) -> list[tuple[str, bool, str]]:
     return checks
 
 
+async def run_barge_in_cell(*, n_runs: int = 5) -> dict:
+    """Interrupt mid-stream (~200ms after the first output chunk) and measure
+    generation-stop latency against one frame budget (50ms).
+
+    Uses the harness protocol + the EventTap (delivery_interrupted events).
+    Returns summary stats + per-run stop latencies in ms.
+    """
+    from bench.harness import EventTap
+
+    from eventorchestrator.adapters.fake_model import ScriptedModel
+
+    long_text = "This is a long answer that should be cancelled midway. " * 8
+    stop_ms: list[float] = []
+    interrupted_events = 0
+    for _ in range(n_runs):
+        tap = EventTap()
+        output = BenchOutput()
+        model = ScriptedModel([long_text])
+        orchestrator = ConversationOrchestrator(
+            conversation_id="bench-bargein",
+            model=model,  # type: ignore[arg-type]
+            tools=ToyToolRegistry(rtt_s=0.01),
+            output=output,  # type: ignore[arg-type]
+            repository=InMemoryConversationRepository(),
+            dispatcher_state=NoopDispatcherState(),
+        )
+        harness = OrchestratorHarness(orchestrator, tap=tap)
+        # instrument delivery path (tap fires from the output port callbacks)
+        orchestrator._output = harness.tap_delivery(output)
+        # instrument model stream (tap fires model_start / model_end / model_cancelled);
+        # capture the ORIGINAL stream first — the wrapper closes over it, so the
+        # reassignment below cannot recurse into itself
+        original_stream = model.stream
+        wrapper = harness.instrument_model_stream()
+        model.stream = (  # type: ignore[method-assign]
+            lambda *a, _m=model, _orig=original_stream, _w=wrapper, **kw: _w(_orig, **kw)
+        )
+
+        loop = asyncio.get_running_loop()
+        await harness.start()
+        await harness.send_user_text("start a long answer")
+
+        # wait for first visible chunk, then interrupt ~200ms later
+        deadline = loop.time() + 10.0
+        while output.first_text_at is None:
+            if loop.time() > deadline:
+                raise RuntimeError("no output chunk before deadline")
+            await asyncio.sleep(0.002)
+        await asyncio.sleep(0.2)
+        t_int = loop.time()
+        await harness.interrupt()
+
+        # generation-stop latency: interrupt() -> model_cancelled tap event
+        cancels = tap.since(t_int, kinds=("model_cancelled",))
+        if not cancels:
+            raise RuntimeError("model_cancelled tap event not observed")
+        stop_ms.append((cancels[0].t - t_int) * 1000.0)
+
+        await harness.wait_idle()
+        interrupted = tap.first(DELIVERY_INTERRUPTED)
+        if interrupted is not None:
+            interrupted_events += 1
+        await orchestrator.close()
+
+    med = statistics.median(stop_ms)
+    return {
+        "n": n_runs,
+        "stop_ms_med": round(med, 1),
+        "stop_ms_max": round(max(stop_ms), 1),
+        "interrupted_events": interrupted_events,
+    }
+
+
+def check_barge_in_invariants(result: dict) -> list[tuple[str, bool, str]]:
+    """Frame budget: 50ms (20fps TTS chunk cadence; generous for event-loop cancel)."""
+    frame_budget_ms = 50.0
+    return [
+        (
+            "4-gen-stop-under-frame-budget [barge-in]",
+            result["stop_ms_max"] < frame_budget_ms,
+            f"stop max={result['stop_ms_max']}ms < {frame_budget_ms:.0f}ms",
+        ),
+        (
+            "5-delivery-interrupted-observed [barge-in]",
+            result["interrupted_events"] == result["n"],
+            f"{result['interrupted_events']}/{result['n']} runs saw delivery_interrupted",
+        ),
+    ]
+
+
 async def main() -> None:
     n_runs = 3
     cells = []
@@ -294,9 +395,19 @@ async def main() -> None:
             f"{a['invocations_med']:.0f}/{b['invocations_med']:.0f}/{cc['invocations_med']:.0f}"
         )
 
+    print("\n=== BARGE-IN CELL (interrupt ~200ms after first chunk, N=5) ===")
+    barge = await run_barge_in_cell(n_runs=n_runs)
+    print(
+        f"stop_ms med={barge['stop_ms_med']} max={barge['stop_ms_max']} | "
+        f"delivery_interrupted {barge['interrupted_events']}/{barge['n']}"
+    )
+
     print("\n=== INVARIANTS ===")
     all_ok = True
     for name, ok, detail in check_invariants(cells):
+        print(f"{'PASS' if ok else 'FAIL'} [{name}] {detail}")
+        all_ok = all_ok and ok
+    for name, ok, detail in check_barge_in_invariants(barge):
         print(f"{'PASS' if ok else 'FAIL'} [{name}] {detail}")
         all_ok = all_ok and ok
     print(f"\ninvariants: {'ALL PASS' if all_ok else 'FAILURES PRESENT'}")

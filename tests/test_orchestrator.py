@@ -1,6 +1,7 @@
-"""Plain-assert tests for the event-driven orchestrator (no pytest needed).
+"""Tests for the event-driven orchestrator (no pytest needed).
 
 Run:  python -m tests.test_orchestrator   (or python tests/test_orchestrator.py)
+Also pytest-collectable: each scenario is wrapped in a test_ coroutine.
 """
 
 from __future__ import annotations
@@ -108,19 +109,15 @@ async def scenario_user_turn_during_pending() -> None:
 
 async def scenario_batch_atomic_commit() -> None:
     """(2) A tool batch commits atomically: assistant msg + ALL results together."""
+    from eventorchestrator.adapters.fake_model import AssistantDecision
+    from eventorchestrator.domain.models import ToolCall
+
     script = [
-        # one decision, two tool calls in one batch
-        __import__("eventorchestrator.adapters.fake_model", fromlist=["x"]).AssistantDecision(
+        AssistantDecision(
             content="",
-            tool_calls=tuple(
-                [
-                    __import__("eventorchestrator.domain.models", fromlist=["x"]).ToolCall(
-                        call_id="t1", name="lookup_order_status", arguments={"order_id": "A"}
-                    ),
-                    __import__("eventorchestrator.domain.models", fromlist=["x"]).ToolCall(
-                        call_id="t2", name="check_weather", arguments={"city": "Madrid"}
-                    ),
-                ]
+            tool_calls=(
+                ToolCall(call_id="t1", name="lookup_order_status", arguments={"order_id": "A"}),
+                ToolCall(call_id="t2", name="check_weather", arguments={"city": "Madrid"}),
             ),
         ),
         FINAL,
@@ -213,6 +210,24 @@ async def scenario_no_prefix_dedup() -> None:
         f"the longer answer (superset prefix) must be delivered in full; got: {text!r}"
     )
     print("PASS [no-prefix-dedup]: identical openings both delivered in full")
+
+
+# ----- pytest wrappers (thin: delegate to the scenario coroutines) -----------
+
+def test_user_turn_during_pending():
+    asyncio.run(scenario_user_turn_during_pending())
+
+
+def test_batch_atomic_commit():
+    asyncio.run(scenario_batch_atomic_commit())
+
+
+def test_interrupt_generation_tools_survive():
+    asyncio.run(scenario_interrupt_generation_tools_survive())
+
+
+def test_no_prefix_dedup():
+    asyncio.run(scenario_no_prefix_dedup())
 
 
 async def main() -> None:

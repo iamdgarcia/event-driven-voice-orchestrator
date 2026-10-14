@@ -52,7 +52,10 @@ def make_bridge(script) -> tuple[EventDrivenOrchestratorBridge, SpySink]:
         repository=InMemoryConversationRepository(),
         dispatcher_state=NoopDispatcherState(),
     )
-    bridge = EventDrivenOrchestratorBridge(orchestrator=orch)
+    # Direct mode keeps the whole pipecat task machinery inert (no internal
+    # process task, no TaskManager needed): the interruption path never
+    # creates the coroutine whose non-await used to warn at teardown.
+    bridge = EventDrivenOrchestratorBridge(orchestrator=orch, enable_direct_mode=True)
     sink = SpySink()
     bridge._sink = sink  # test hook: capture pushed frames
 

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  selfchecks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Orchestrator selfcheck
+        run: python -m tests.test_orchestrator
+
+      - name: Bench invariants + barge-in cell
+        run: python -m bench.bench_turn_latency
+
+      - name: Pipecat bridge selfcheck (pipecat extras)
+        continue-on-error: true
+        run: |
+          pip install "pipecat-ai>=1.12"
+          python integrations/pipecat_adapter/test_bridge.py
