@@ -1,5 +1,7 @@
 # Event-Driven Voice Orchestrator
 
+[![CI](https://github.com/iamdgarcia/event-driven-voice-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/iamdgarcia/event-driven-voice-orchestrator/actions/workflows/ci.yml)
+
 **S2S-duplex turn-taking STRUCTURE for cascaded voice agents: background tools,
 non-stalling user turns, generation and delivery as independent lifecycles —
 ~600 lines, zero dependencies, runs with a fake model, no API keys.**
@@ -48,6 +50,8 @@ ConversationOrchestrator ──── one canonical ConversationState
 Ports: ModelPort · ToolRegistryPort · OutputPort · ConversationRepositoryPort
 ```
 
+![information flow through the event loop](docs/diagrams/information-flow.svg)
+
 ## The cascade→duplex argument
 
 A cascade pays `(tools − 1) × RTT` because each tool round-trip re-serializes
@@ -61,23 +65,30 @@ token-level interleave (talking WHILE listening) — that is honest scope, see
 ## Measured invariants
 
 From `bench/bench_turn_latency.py` (real orchestrator, scripted model, simulated
-tool RTT; medians of N=3 wall-clock runs; numbers from a run on 2026-10-13):
+tool RTT; medians of N=3 wall-clock runs; numbers from a run on 2026-10-14):
 
 | rtt | tools | cascade total | event-driven total | turn-2 ack (mid-pending) |
 |----:|------:|--------------:|-------------------:|-------------------------:|
-| 100ms | 1  | 250ms  | 235ms  | — |
-| 100ms | 4  | 703ms  | 281ms  | 0ms |
-| 1000ms | 1 | 1125ms | 1125ms | — |
-| 1000ms | 4 | **4250ms** | **1156ms** | 0ms |
+| 100ms | 1  | 235ms  | 234ms  | — |
+| 100ms | 4  | 656ms  | 234ms  | 0ms |
+| 1000ms | 1 | 1141ms | 1187ms | — |
+| 1000ms | 4 | **4343ms** | **1141ms** | 0ms |
 
-Three invariants asserted on every bench run:
+Five invariants asserted on every bench run (the table's grid plus a barge-in cell
+that interrupts ~200ms after the first output chunk):
 
-1. **Parallel beats cascade**, with the gap growing linearly in
-   `(tools − 1) × RTT` (measured A−B = 3094ms vs predicted 3000ms @ 1s×4).
-2. **Never worse at tools=1** (the event loop adds no serialization tax).
+1. **Parallel beats cascade** (tools > 1), with the gap growing linearly in
+   `(tools − 1) × RTT` (measured A−B = 3202ms vs predicted 3000ms @ 1s×4).
+2. **Never worse at tools=1** (the event loop adds no serialization tax;
+   at tools=1 the two topologies are equivalent by design, so only this
+   invariant covers that cell).
 3. **Turn-ack bounded**: a user turn during pending gets its response in
    well under the tool RTT (0ms in the bench — the model acks from the
    pending-calls context injection, no tool stall).
+4. **Generation stop under frame budget**: barge-in cancels generation in
+   < 50ms (measured 0ms — one frame).
+5. **Delivery interruption observed**: the interrupted delivery is reported
+   through the lifecycle (3/3 runs) and becomes next-turn context.
 
 The same invariants were verified against a corporate POC of this design with a
 sweep of RTT ∈ {10, 100, 500, 1000, 2000}ms × tools ∈ {1, 2, 4} (32/32 checks):
@@ -88,8 +99,8 @@ results hold across the matrix, gap stays linear.
 ```bash
 python -m examples.terminal_demo --demo   # scripted demo, no typing, exits by itself
 python -m examples.terminal_demo          # interactive: type while tools run (~1.5s RTT)
-python -m bench.bench_turn_latency        # reproduce the invariant table
-python -m tests.test_orchestrator         # plain-assert test suite
+python -m bench.bench_turn_latency        # reproduce the invariant table (8 checks)
+python -m tests.test_orchestrator         # plain-assert test suite (pytest-collectable too)
 ```
 
 No installs, no API keys — Python ≥ 3.11, standard library only. Plug your real
@@ -99,7 +110,9 @@ events and reports playback back).
 
 ## Integrations
 
-Optional adapters live in [`integrations/`](integrations/README.md):
+Optional adapters live in [`integrations/`](integrations/README.md) — and the
+bench has a 5-method harness protocol (`bench/harness.py`) so a foreign runtime
+can run the same cells and invariants (the seam for framework conformance kits).
 
 - **Pipecat** (`pipecat_adapter/`) — `EventDrivenOrchestratorBridge`, a
   `FrameProcessor` that maps `TranscriptionFrame` → `send_text`, playback

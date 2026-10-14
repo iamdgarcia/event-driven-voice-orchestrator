@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event-Driven Voice Orchestrator — Information Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f7f9f8;   /* Unicaja ash-green paper */
+      --color-ink:     #14232b;   /* corporate petrol */
+      --color-muted:   #60605f;
+      --color-soft:    #66655f;
+      --color-accent:  #005265;   /* corporate teal */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Event-Driven Voice Orchestrator</p>
+    <h1>How information flows: one event loop, two lifecycles</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 656" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="info-flow-title info-flow-desc">
+        <title id="info-flow-title">Event-driven voice orchestrator information flow</title>
+        <desc id="info-flow-desc">User turns enter as events to the orchestrator, which streams prompts to a generation task and dispatches tools in parallel background batches; results return as events, delivery has its own lifecycle, and a barge-in cancels only generation while tools keep running.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#60605f"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#005265"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f7f9f8"/>
+
+        <!-- ===== zones (before arrows and nodes) ===== -->
+        <rect x="24" y="200" width="180" height="140" rx="8" fill="rgba(20,35,43,0.02)" stroke="rgba(20,35,43,0.10)" stroke-width="0.8"/>
+        <rect x="84" y="204" width="60" height="12" rx="2" fill="#f7f9f8"/>
+        <text x="114" y="213" fill="#66655f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">INBOUND</text>
+
+        <rect x="232" y="64" width="640" height="404" rx="8" fill="rgba(20,35,43,0.02)" stroke="rgba(20,35,43,0.10)" stroke-width="0.8"/>
+        <rect x="436" y="68" width="232" height="12" rx="2" fill="#f7f9f8"/>
+        <text x="552" y="77" fill="#66655f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">RUNTIME · ONE CANONICAL STATE</text>
+
+        <rect x="232" y="480" width="640" height="84" rx="8" fill="rgba(20,35,43,0.02)" stroke="rgba(20,35,43,0.10)" stroke-width="0.8"/>
+        <rect x="484" y="484" width="136" height="12" rx="2" fill="#f7f9f8"/>
+        <text x="552" y="493" fill="#66655f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">PORTS · PLUG POINTS</text>
+
+        <!-- ===== arrows (before nodes) ===== -->
+        <!-- 1. inbound -> orchestrator: user turn event -->
+        <line x1="180" y1="268" x2="368" y2="268" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="216" y="258" width="116" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="274" y="268" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">USER TURN</text>
+
+        <!-- 2. orchestrator -> generation: prompt (dashed request) -->
+        <line x1="380" y1="232" x2="380" y2="152" stroke="#60605f" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="300" y="184" width="64" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="332" y="194" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">PROMPT</text>
+
+        <!-- 3. generation -> orchestrator: token stream (solid, the headline flow) -->
+        <line x1="416" y1="152" x2="416" y2="232" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="404" y="184" width="60" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="434" y="194" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">TOKENS</text>
+
+        <!-- 4. orchestrator -> dispatcher: async dispatch (dashed) -->
+        <line x1="592" y1="232" x2="592" y2="152" stroke="#60605f" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="648" y="184" width="76" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="686" y="194" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">DISPATCH</text>
+
+        <!-- 5. dispatcher -> orchestrator: tool result event (solid) -->
+        <line x1="624" y1="152" x2="624" y2="232" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="616" y="216" width="96" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="664" y="226" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">TOOL RESULT</text>
+
+        <!-- 6. orchestrator -> state: canonical read/write -->
+        <line x1="400" y1="304" x2="400" y2="368" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="308" y="328" width="88" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="352" y="338" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">STATE R/W</text>
+
+        <!-- 7. orchestrator -> delivery: emit chunks -->
+        <line x1="592" y1="304" x2="592" y2="368" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="560" y="328" width="104" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="612" y="338" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">EMIT CHUNKS</text>
+
+        <!-- 9. orchestrator -> ports strip -->
+        <line x1="492" y1="304" x2="492" y2="496" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="500" y="436" width="84" height="14" rx="2" fill="#f7f9f8"/>
+        <text x="542" y="446" fill="#60605f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">PORTS SPI</text>
+
+        <!-- 10. barge-in callout pointer (accent, dashed, short) -->
+        <line x1="240" y1="124" x2="272" y2="124" stroke="#005265" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-accent)"/>
+
+        <!-- ===== nodes ===== -->
+        <!-- inbound adapter -->
+        <rect x="44" y="244" width="136" height="64" rx="6" fill="#f7f9f8" stroke="#14232b" stroke-width="1"/>
+        <rect x="52" y="236" width="56" height="14" rx="2" fill="#eef3f1" stroke="#c5d2d0" stroke-width="0.6"/>
+        <text x="80" y="246" fill="#66655f" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.1em">INPUT</text>
+        <text x="112" y="272" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Inbound adapters</text>
+        <text x="112" y="290" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">terminal · pipecat · ws</text>
+
+        <!-- orchestrator (FOCAL) -->
+        <rect x="368" y="232" width="248" height="72" rx="6" fill="rgba(0,82,101,0.08)" stroke="#005265" stroke-width="1.4"/>
+        <rect x="376" y="224" width="60" height="14" rx="2" fill="#f7f9f8" stroke="#005265" stroke-width="0.6"/>
+        <text x="406" y="234" fill="#005265" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.1em">EVENT LOOP</text>
+        <text x="492" y="262" fill="#14232b" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ConversationOrchestrator</text>
+        <text x="492" y="282" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">event queue · gen + delivery lifecycles</text>
+
+        <!-- generation task -->
+        <rect x="280" y="96" width="168" height="56" rx="6" fill="#f7f9f8" stroke="#14232b" stroke-width="1"/>
+        <text x="364" y="120" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Generation task</text>
+        <text x="364" y="138" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">streaming model · cancelable</text>
+
+        <!-- tool dispatcher -->
+        <rect x="584" y="96" width="168" height="56" rx="6" fill="#f7f9f8" stroke="#14232b" stroke-width="1"/>
+        <text x="668" y="120" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ToolDispatcher</text>
+        <text x="668" y="138" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">parallel batches · persists</text>
+
+        <!-- conversation state -->
+        <rect x="280" y="368" width="168" height="56" rx="6" fill="#eef3f1" stroke="#14232b" stroke-width="1"/>
+        <text x="364" y="392" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ConversationState</text>
+        <text x="364" y="410" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">canonical · serializable</text>
+
+        <!-- delivery lifecycle -->
+        <rect x="584" y="368" width="168" height="56" rx="6" fill="#f7f9f8" stroke="#14232b" stroke-width="1"/>
+        <text x="668" y="392" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Delivery lifecycle</text>
+        <text x="668" y="410" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PENDING→PLAYING→END · OutputPort</text>
+
+        <!-- ports strip -->
+        <rect x="296" y="496" width="560" height="52" rx="6" fill="#f7f9f8" stroke="#14232b" stroke-width="1"/>
+        <text x="576" y="518" fill="#14232b" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ports SPI — the framework seam</text>
+        <text x="576" y="536" fill="#66655f" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">ModelPort · ToolRegistryPort · OutputPort · ConversationRepositoryPort</text>
+
+        <!-- ===== barge-in callout (annotation, italic serif, accent) ===== -->
+        <text x="80" y="112" fill="#005265" font-size="13" font-style="italic" font-family="'Instrument Serif', serif">barge-in: interrupt()</text>
+        <text x="80" y="130" fill="#005265" font-size="13" font-style="italic" font-family="'Instrument Serif', serif">cancels ONLY generation —</text>
+        <text x="80" y="148" fill="#005265" font-size="13" font-style="italic" font-family="'Instrument Serif', serif">tools keep running</text>
+
+        <!-- ===== legend (bottom strip) ===== -->
+        <line x1="232" y1="608" x2="262" y2="608" stroke="#60605f" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="270" y="611" fill="#60605f" font-size="8" font-family="'Geist Mono', monospace">sync flow</text>
+        <line x1="344" y1="608" x2="374" y2="608" stroke="#60605f" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <text x="382" y="611" fill="#60605f" font-size="8" font-family="'Geist Mono', monospace">async / event</text>
+        <rect x="472" y="602" width="12" height="12" rx="2" fill="rgba(0,82,101,0.08)" stroke="#005265" stroke-width="1"/>
+        <text x="492" y="611" fill="#60605f" font-size="8" font-family="'Geist Mono', monospace">the contract (focal)</text>
+        <rect x="628" y="602" width="12" height="12" rx="2" fill="#eef3f1" stroke="#14232b" stroke-width="1"/>
+        <text x="648" y="611" fill="#60605f" font-size="8" font-family="'Geist Mono', monospace">store</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>
