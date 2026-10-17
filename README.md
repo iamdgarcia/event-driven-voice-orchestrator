@@ -103,10 +103,35 @@ python -m bench.bench_turn_latency        # reproduce the invariant table (8 che
 python -m tests.test_orchestrator         # plain-assert test suite (pytest-collectable too)
 ```
 
-No installs, no API keys — Python ≥ 3.11, standard library only. Plug your real
-stack by implementing the five ports in `src/eventorchestrator/domain/ports.py`
-(the demo's fake model/tools show the shape; a Pipecat adapter maps frames to
-events and reports playback back).
+### Real model demo (OpenAI)
+
+```bash
+cp .env.example .env          # set OPENAI_API_KEY
+pip install openai           # the only extra the demo needs
+python -m examples.openai_demo
+```
+
+Ask for an order status (tool dispatches in the background), type while it is
+pending (instant ack), and interrupt mid-answer (generation cancels, tools keep
+running). Same event loop as the scripted demo — only the ModelPort is real.
+
+### Testing YOUR integration (conformance runner)
+
+Wire your runtime behind the 5-method harness protocol (see
+`bench/adapters/reference.py` — copy, replace `build()`), then:
+
+```bash
+python -m bench.conformance bench.adapters.reference:build
+```
+
+It drives your harness through the same cells (single tool, parallel batch,
+mid-pending turn, barge-in) and asserts the contract invariants. Exit 0 =
+conformant.
+
+No API keys needed for anything except `openai_demo`. Python ≥ 3.11, standard
+library only in the core. Plug your real stack by implementing the five ports
+in `src/eventorchestrator/domain/ports.py` (the demo's fake model/tools show
+the shape; a Pipecat adapter maps frames to events and reports playback back).
 
 ## Integrations
 

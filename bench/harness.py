@@ -184,9 +184,7 @@ class OrchestratorHarness:
 
             def _emit_at(self, kind, **labels):
                 if self._harness._tap is not None:
-                    self._harness._tap.emit(
-                        kind, asyncio.get_running_loop().time(), **labels
-                    )
+                    self._harness._tap.emit(kind, asyncio.get_running_loop().time(), **labels)
 
         tapped = _TappedOutput(output_port)
         tapped._harness = self
