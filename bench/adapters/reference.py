@@ -55,7 +55,12 @@ def build() -> ConformanceTarget:
         tool_call("b3", "lookup_order_status", {"order_id": "A-3"}),
         tool_call("b4", "lookup_order_status", {"order_id": "A-4"}),
         "All four orders shipped.",
-        # turn 3: short ack (drives the mid-pending cell)
+        # turn 3 (drives the mid-pending ack cell): TWO slow tools dispatched by
+        # this turn itself, so pending_count() >= 2 fires deterministically while
+        # "hello, still there?" queues. One tool would peak at 1 pending and the
+        # conformance runner would depend on cell-2 leftovers — a race.
+        tool_call("w1", "lookup_order_status", {"order_id": "A-W1"}),
+        tool_call("w2", "lookup_order_status", {"order_id": "A-W2"}),
         "Yes, I'm here.",
         # turn 4: long answer (drives the barge-in cell)
         "Once upon a time there was a voice agent that never stalled a user turn, "
