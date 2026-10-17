@@ -146,6 +146,12 @@ can run the same cells and invariants (the seam for framework conformance kits).
   Works with the `ScriptedModel` (no LLM) — see the [wiring snippet](integrations/README.md#wiring-into-a-pipeline)
   and run `python integrations/pipecat_adapter/test_bridge.py`.
 
+- **LiveKit Agents** (`livekit_adapter/`) — roomless headless `AgentSession`
+  (livekit-agents==1.8.8) behind the same 5-method harness. Conformance result:
+  **4/4 invariants hold, stable** — tools run as background `asyncio` tasks,
+  mid-pending turns ack in ~100 ms, barge-in stops within one poll tick. First
+  external framework validated by the kit; see the [adapter README](integrations/livekit_adapter/README.md).
+
 Dev extras (`pillow`, `pipecat-ai`, `ruff`) live in `requirements-dev.txt`; the
 core has no dependencies.
 
