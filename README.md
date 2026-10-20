@@ -145,6 +145,7 @@ can run the same cells and invariants (the seam for framework conformance kits).
   Transport only: Pipecat keeps scheduling, the orchestrator keeps state.
   Works with the `ScriptedModel` (no LLM) — see the [wiring snippet](integrations/README.md#wiring-into-a-pipeline)
   and run `python integrations/pipecat_adapter/test_bridge.py`.
+  Verified compatible with pipecat 1.13.0 (2026-10-19 release, additive only).
 
 - **LiveKit Agents** (`livekit_adapter/`) — roomless headless `AgentSession`
   (livekit-agents==1.8.8) behind the same 5-method harness. Conformance result:
